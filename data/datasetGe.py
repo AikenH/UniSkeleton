@@ -4,8 +4,8 @@
 # Method: Using Sampling to get Long Tailed of data 
 #         Using FSL Sampling to get the New Classes data
 #         Do basic transform in the __getitem__ and do not set default for it.
-# NOTE: we should pass diff transformer for diff stage of training(val)
-# NOTE: pass data augmentation to __getitem__ using TRANSFORM
+we should pass diff transformer for diff stage of training(val)
+pass data augmentation to __getitem__ using TRANSFORM
 #       if we want to dublicate a img or do more augmentation, we call func
         in training or in the collate_fn
 """
@@ -15,58 +15,41 @@ import glob
 import json
 import copy
 # data reading module
-import numpy as np
 import cv2
+import numpy as np
+from PIL import Image
 # torch module
 import torch
 import torchvision
 from torch.utils import data
 from torchvision.transforms import transforms
 # my script
-from data.dataUtils import count_data
+from util.utils import mapping_order_list
 from data.dataAugment import myAugmentation
+from data.setTransformer import select_transform
 
-# FIXME: add a transformer selection which seprate those transformer to config fils
-cifar10_transformer_train = transforms.Compose([
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomCrop(32,padding=4),
-                transforms.ToTensor(),
-                transforms.Normalize([0.4914, 0.4822, 0.4465],
-                [0.2023, 0.1994, 0.2010])
-            ])
-cifar10_transformer_val = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Normalize([0.4914, 0.4822, 0.4465],
-                [0.2023, 0.1994, 0.2010])
-            ])
+DOWNLOAD_DATA = ['cifar100','cifar10','MNIST','FashionMNIST']
+LOCAL_DATA = ['ImageNet','MiniImageNet', 'LocalFiles']
 
-cifar100_transformer_train = transforms.Compose([
-                transforms.RandomHorizontalFlip(),
-                transforms.RandomCrop(32,padding=4),
-                # transforms.Resize(224),
-                transforms.ToTensor(),
-                transforms.Normalize([0.485, 0.456, 0.406],
-                [0.229, 0.224, 0.225])
-            ])
-cifar100_transformer_val = transforms.Compose([
-                transforms.ToTensor(), 
-                transforms.Normalize([0.485, 0.456, 0.406],
-                [0.229, 0.224, 0.225])
-            ])
-def select_transform(datatype,istrain):
-    """
-    Input:
-        datatype, istrain
-    Return:
-        transform
-    """
-    istrain = True if not istrain else False
-    if datatype == 'cifar100':
-        return cifar100_transformer_train if not istrain else cifar100_transformer_val
-    elif datatype == 'cifa10':
-        return cifar10_transformer_train if not istrain else cifar10_transformer_val
-    else:
-        pass
+def sort_dataset(dataset):
+    # !! 同步排序有很多更好的方法，这里可以借鉴一下，进行更新
+    # the num_new_class can be calculate by some formula, but in this part make it HARD
+    # sort those data and label which make it easier to del class.
+    num_data = len(dataset)
+    up_limit = pow(10, len(str(num_data)))
+    index = [index /up_limit for index in range(num_data)]
+    
+    # using this mark to sort the data
+    for i, _ in enumerate(dataset.targets):
+        dataset.targets[i] += index[i]
+    dataset.targets.sort()
+    
+    # get the new order 
+    new_order = [int((target - int(target)) * up_limit) for target in dataset.targets] 
+    dataset.targets = [int(target) for target in dataset.targets]
+    # it's necessary for us to swith to list or not?
+    dataset.data = list(np.array(dataset.data)[new_order,...])
+
     return None
 
 def download_data(datatype='cifar100', istrain=0, save_path=None, transform=None, *args, **kwargs):
@@ -100,7 +83,7 @@ def download_data(datatype='cifar100', istrain=0, save_path=None, transform=None
 
     return dataset
 
-def extract_new_class(dataset, num_new_classes, num_class, sort=False, *args, **kwargs):
+def extract_new_class(dataset, num_new_classes, num_class, sort=False, random_seed=None, order_list=None,*args, **kwargs):
     """
     dataset : 
         deliver the origin dataset to this func.
@@ -114,26 +97,33 @@ def extract_new_class(dataset, num_new_classes, num_class, sort=False, *args, **
         return Known dataset and New Classes dataset
     """
     # the num_new_class can be calculate by some formula, but in this part make it HARD
-    if sort :
-        # sort those data and label which make it easier to del class.
-        num_data = len(dataset)
-        up_limit = pow(10, len(str(num_data)))
-        index = [index /up_limit for index in num_data]
+    if sort:
+        sort_dataset(dataset)
         
-        # using this mark to sort the data
-        for i, _ in enumerate(dataset.targets):
-            dataset.targets[i] += index[i]
-        dataset.targets.sort()
-        
-        # get the new order 
-        new_order = [target - int(target) for target in dataset.targets] * up_limit
-        dataset.targets = [int(target) for target in dataset.targets]
-        # it's necessary for us to swith to list or not?
-        dataset.data = list(np.array(dataset.data)[new_order])
-    
+    # set the random seed to get the same sampler of class
+    if random_seed is not None:
+        np.random.seed(random_seed)
+
     # random define the new_class
-    class_index = list(range(num_class))
-    new_classes = np.random.choice(class_index, num_new_classes,replace=False)
+    new_order_dict = list(range(num_class))
+    if kwargs.get('shuffle', True):
+        np.random.shuffle(new_order_dict)
+    
+    if order_list is not None:
+        new_order_dict = order_list
+
+    new_classes = new_order_dict[num_class-num_new_classes:]
+    
+    if kwargs.get('fix', False):
+        # NOTE: store those hyper-class for confi-test
+        # https://cloud.tencent.com/developer/article/1679335
+        new_classes = [3, 7, 13, 27, 41, 42, 43, 48, 52, 56, 57, 59, 69, 80, 81, 88, 89, 90, 96, 97]
+        new_order_dict = [i for i in range(num_class) if i not in new_classes]
+        new_order_dict += new_classes
+    
+    # enable this for the test process
+    if num_new_classes == 0: new_classes = []
+
     new_index = [target in new_classes for target in dataset.targets]
     
     # Dublicate the basic dataset
@@ -143,7 +133,7 @@ def extract_new_class(dataset, num_new_classes, num_class, sort=False, *args, **
     new_data, new_targets = [], []
     old_data, old_targets = [], []
     for i in range(len(dataset)):
-        if new_index[i] == True:
+        if new_index[i] == True: 
             new_data.append(dataset.data[i])
             new_targets.append(dataset.targets[i])
         else:
@@ -151,12 +141,15 @@ def extract_new_class(dataset, num_new_classes, num_class, sort=False, *args, **
             old_targets.append(dataset.targets[i])
 
     # assign those list to the dataset
-    dataset.data, dataset.targets = old_data, old_targets
-    new_class_dataset.data, new_class_dataset.targets = new_data, new_targets
+    remap_targets = mapping_order_list(new_order_dict,old_targets)
+    dataset.data, dataset.targets = old_data, remap_targets
+
+    remap_new_targets = mapping_order_list(new_order_dict,new_targets)
+    new_class_dataset.data, new_class_dataset.targets = new_data, remap_new_targets
 
     return dataset, new_class_dataset
 
-def generate_unbalance_class(dataset, num_cls, factor=0.3, strategy='step', decay=0.1, *args, **kwargs):
+def generate_unbalance_class(dataset, num_cls, factor=0.3, strategy='step', decay=0.1, random_seed=None, *args, **kwargs):
     """
     DATASET: 
         deliver the origin dataset to this func.
@@ -171,10 +164,12 @@ def generate_unbalance_class(dataset, num_cls, factor=0.3, strategy='step', deca
     ratio_per_cls = []
     if strategy == 'step':
         ratio_per_cls += [1] * (num_cls//2)
-        for cls_idx in range(num_cls//2):
-            if cls_idx % (num_cls // 10) == 0: decay += 0.1
-            ratio = factor ** (1 + decay)
-            ratio_per_cls.append(ratio)
+        # ratio = decay
+        for cls_idx in range(1,num_cls//2 +1):
+            # if cls_idx % (num_cls // 10) == 0: 
+                # decay += 0.1
+                # ratio = ratio * decay
+            ratio_per_cls.append(factor)
 
     elif strategy == 'exp':
         for cls_idx in range(num_cls):
@@ -186,10 +181,12 @@ def generate_unbalance_class(dataset, num_cls, factor=0.3, strategy='step', deca
     # using the sampling rate to get data
     targets_bak = np.array(dataset.targets)
     classes = np.unique(targets_bak)
+    np.random.seed(random_seed)
     np.random.shuffle(classes)
     # the final data
     imb_data,imb_targets = [], []
 
+    # this part will make the list ordered, we need to shuffle this for the future use
     for label, ratio in zip(classes, ratio_per_cls):
         # find all this class
         idx = np.where(targets_bak == label)[0]
@@ -199,7 +196,15 @@ def generate_unbalance_class(dataset, num_cls, factor=0.3, strategy='step', deca
         imb_data += [dataset.data[i] for i in select_idx]
         imb_targets += [label] * num_pre_cls
     
-    dataset.data, dataset.targets= imb_data, imb_targets
+    # # [ ]: improve the shuffle part in there
+    # np.random.seed(888)
+    # np.random.shuffle(imb_data)
+    # np.random.seed(888)
+    # np.random.shuffle(imb_targets)
+
+    dataset.data, dataset.targets = imb_data, imb_targets
+    if 'fix_order' in args:
+        return [dataset, classes]
     return dataset
 
 class AllData(data.Dataset):
@@ -207,18 +212,18 @@ class AllData(data.Dataset):
     Init: save_path, train, datatype
     Return: origin dataset for Local data
     """
-    # NOTE: the transformer need to be add in outside the config
+
     def __init__(self, datatype='ImageNet', istrain=0, save_path=r'/workspace/DownloadData/ImageNet',
-                transform=None,needMap=False,*args, **kwargs):
+                transform=None, needMap=False, datalist=None, targetlist=None, *args, **kwargs):
         super(AllData,self).__init__()
-        # hyper parameters 
-        DOWNLOAD_DATA = ['cifar100','cifar10','MNIST','FashionMNIST']
-        LOCAL_DATA = ['ImageNet','MiniImageNet', 'LocalFiles']
         # setting basic params
         self.isDownload = False
         self.maping = None
         self.transform = transform
         self.isNpy = False
+        self.datatype = datatype
+        self.out_idx = False
+        self.train = istrain
         # diff process for diff dataset 
         if datatype in LOCAL_DATA:
             # Set the basic Params 
@@ -226,15 +231,6 @@ class AllData(data.Dataset):
             if needMap:
                 self.maping = self._generate_mapping(save_path)
                 assert self.maping is not None, "not generate the mapping correctly"
-            
-            # if transform is not None:
-            #     self.transform = transform
-            # else:
-            #     self.transform = transforms.Compose([
-            #         transforms.ToTensor(),
-            #         transforms.Normalize([0.485, 0.456, 0.406],
-            #                             [0.229, 0.224, 0.225])
-            #     ])
             
             # Get the final path for the data 
             self.train = istrain
@@ -259,14 +255,32 @@ class AllData(data.Dataset):
                 self.tmp_dataset = download_data(datatype, istrain, save_path)
             self.targets, self.data = self.tmp_dataset.targets, self.tmp_dataset.data
             self.transform = self.tmp_dataset.transform
+        
+        elif datatype == "Given":
+            self.data, self.targets = datalist, targetlist
             
         else:
             raise NotImplementedError('this data type is not define, you need to add it in getdata.py')
+        
+        return None
 
     def __getitem__(self, index):
         # 这里需要考虑两种情况：第一种是读取进来就是字典的情况，我们默认为已经经过处理了，
         # 第二种情况是，读取进来是单张图片的情况，这种情况下，我们要调用函数来对对其进行处理
-        if self.isDownload == False:
+        if self.datatype == 'Given':
+            image, label = self.data[index], self.targets[index]
+            if image.shape[0] == 3:
+                image = image.transpose(1, 2, 0)
+
+            if self.transform is not None:
+                try:
+                    image = self.transform(image=image)['image']
+                    image = transforms.ToTensor()(image)
+
+                except:
+                    image = self.transform(image)
+                
+        elif self.isDownload == False:
             if not self.isNpy:
                 # using cv2 to load jpg or sth. else
                 image = cv2.imread(self.data[index])
@@ -284,14 +298,25 @@ class AllData(data.Dataset):
             if not isinstance(image, dict):
                 if self.transform is not None:
                     image = self.transform(image)
-        else:
-            image,label = self.tmp_dataset[index]
 
+        else:
+            # image,label = self.tmp_dataset[index]
+            image, label = self.data[index], self.targets[index]
+
+            # doing this so that it is consistent with all other datasets
+            # to return a PIL Image
+            image = Image.fromarray(image)
+
+            if self.transform is not None:
+                image = self.transform(image)
+            
         # for the diff output dimension ,we need to fix the num of it 
         # if the image we load is dict, we think its already been processed, so we just output
         # if not isinstance(image, dict):
         #     if self.transform is not None:
         #         image = self.transform(image)
+
+        if self.out_idx: return index, image, label
             
         return image, label
 
@@ -329,6 +354,11 @@ class AllData(data.Dataset):
             assert len(labelset) == len(dataset), "the len of data and label should be the same"
 
         return dataset, labelset
+    
+    def set_out_idx(self, enable=False): 
+        """Using this flag to change the status of getitem"""
+        self.out_idx = enable
+        return None
 
     def _generate_mapping(self, save_path):
         """
@@ -360,25 +390,48 @@ class AllData(data.Dataset):
                 json.dump(mapping_file,f, ensure_ascii=False)
         
         return mapping_file
+    
+    def _save_origin_dataset(self, datasetname='cifar100-ow', savepath=r'/workspace/DownloadData', *args, **kwargs):
+        # get the dir path dir + dataset-name + 'phase'
+        savepath = os.path.join(savepath, datasetname)
+        TAGS = ['train', 'val', 'test']
+        savepath = os.path.join(savepath, TAGS[self.train])
+        if not os.path.exists(savepath): os.makedirs(savepath)
+
+        # load data from the list to get the origin data.
+        # if using getitem will be after transform
+        from tqdm.contrib import tzip
+        for i, (img, label) in enumerate(tzip(self.data, self.targets)):
+            cls_path = os.path.join(savepath, str(label))
+            if not os.path.exists(cls_path): os.makedirs(cls_path)
+
+            img_path = os.path.join(cls_path, str(i))
+            np.save(img_path, img)
+
+        return None
 
 class DataSampler():
     def __init__(self, dataset, datatype='cifar100', istrain=0, 
                 num_new=10,sort=False,imb_factor=0.3, strategy='step',decay=0.1,
-                num_cls = None, *args, **kwargs):
+                num_cls = None, random_seed=None, new_order=None, *args, **kwargs):
         # init the dataset attributes
-        # FIXME: dataset should be pass by other function, then we can carry out mix here
         self.origin_dataset = dataset
         self.remain_dataset = None
         self.new_dataset = None
         self.imb_dataset = None
         self.dataype = datatype
         self.istrain = istrain
+
         # pass those params to this class
         self.num_new = num_new
         self.sort = sort
         self.factor = imb_factor
         self.strategy = strategy
-        self.decay = decay        
+        self.decay = decay
+        self.random_seed = random_seed
+
+        self.new_order = new_order
+
         # parsing num_relationship in here
         Name2Nums = {
             'cifar100': 100,
@@ -393,46 +446,52 @@ class DataSampler():
         # set a flag for the imb_dataset
         self.imb_fi = False
         
-    def _generate_new(self,num_new_classes,num_class,sort=False,*args, **kwargs):
+    def _generate_new(self,num_new_classes,num_class,sort=False, random_seed=None, order_list=None, *args, **kwargs):
         dataset = copy.deepcopy(self.origin_dataset)
-        return extract_new_class(dataset,num_new_classes, num_class,sort)
+        if self.imb_dataset is not None:
+            dataset = copy.deepcopy(self.imb_dataset)
+        return extract_new_class(dataset,num_new_classes, num_class,sort, random_seed, order_list, *args, **kwargs)
         
-    def _generate_imb(self,dataset, num_cls, factor, strategy='step',decay=0.1, *args, **kwargs):
+    def _generate_imb(self,dataset, num_cls, factor, strategy='step',decay=0.1, random_seed=None, *args, **kwargs):
         tmp_dataset = copy.deepcopy(dataset)
-        return generate_unbalance_class(tmp_dataset,num_cls, factor, strategy,decay, *args, **kwargs)
+        return generate_unbalance_class(tmp_dataset,num_cls, factor, strategy, decay, random_seed, *args, **kwargs)
     
-    def get_remain(self): 
+    def get_remain(self, **kwargs): 
         # only excute this function the remain dataset is not defined
         if self.remain_dataset is None:
             self.remain_dataset, self.new_dataset = \
-                self._generate_new(self.num_new,self.num_cls,self.sort)
+                self._generate_new(self.num_new,self.num_cls,self.sort, self.random_seed,order_list=self.new_order,**kwargs)
             self.num_cls -= self.num_new
 
         return self.remain_dataset
     
-    def get_new(self): 
+    def get_new(self, **kwargs): 
         # only excute this function the new dataset is not defined
         if self.new_dataset is None:
             self.remain_dataset, self.new_dataset = \
-                self._generate_new(self.num_new,self.num_cls,self.sort)
+                self._generate_new(self.num_new,self.num_cls,self.sort,self.random_seed, order_list=self.new_order,**kwargs)
             self.num_cls -= self.num_new
             
         return self.new_dataset
 
-    def get_imb(self):
+    def get_imb(self,*args, **kwargs):
         # only excute this function if imb_dataset is not generate 
         if not self.imb_fi:
             dataset = self.origin_dataset if self.remain_dataset is None else self.remain_dataset
             self.imb_dataset = \
-                self._generate_imb(dataset ,self.num_cls,self.factor,self.strategy,self.decay)
+                self._generate_imb(dataset ,self.num_cls,self.factor,self.strategy,self.decay, self.random_seed,*args, **kwargs)
+            if 'fix_order' in args:
+                self.imb_dataset, self.new_order = self.imb_dataset
             self.imb_fi = True
         
         return self.imb_dataset
     
     def process(self):
-        # init those in one process, if we excute it in a full version
+        # which we use this function for both
+        self.get_imb('fix_order')
         self.get_remain()
-        self.get_imb()
+
+        return self.new_order
 
     def save_dataset(self, dataset, save_path, datatype, *args,**kwargs):
         """
@@ -463,11 +522,13 @@ class DataSampler():
             
             img_path = os.path.join(cls_path, str(i))
             np.save(img_path, img)
+
+        return None
     
     def dublicate_augmentation(self, img, strategy='all', random=False, i_size=224):
         """using diff strategy to dublicate the img, add it in save_dataset """
         # the default strategy, using this to propocess our data
-        if strategy == 'all':
+        if strategy == 'all': 
             transforms = myAugmentation.list_of_transformers(i_size)
         elif strategy == 'base':
             transforms = myAugmentation.better_transformer(i_size)
@@ -482,27 +543,59 @@ class DataSampler():
         imgs = torch.stack(imgs,dim=0)
         return imgs
         
-        
-# TODO: waitting for test
 class MixDataset(data.Dataset):
-    def __init__(self, dataset, new_dataset, strategy='balance', factor=1, *args, **kwargs):
+    """
+    Using diff strategy to mix the dataset \n
+    Now we support those:
+    
+    - basic rebalance, complete merge
+    
+    Need Support in the future:
+    - diff downsample strategy such as prototypical
+    
+    """
+    def __init__(self, dataset, new_dataset, strategy='balance', factor=1, 
+                    transformer=None, augs=None, *args, **kwargs):
         
         self.dataset = dataset
+        self.transformer = transformer
         self.new_dataset = new_dataset
-        self.data, self.targets = dataset.data, dataset.targets
+        self.data, self.targets = copy.deepcopy(new_dataset.data), copy.deepcopy(new_dataset.targets)
+        self.augs = augs
         
-        # using specific strategy to mix the dataset        
+        # using specific strategy to mix the dataset
+        # we may caculate the factor in the process
         self.select_stategy(strategy,factor)
         
-    def __getitem__(self, index):
-        img = cv2.imread(self.data[index])
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        label = self.targets[index]
+        return None
         
-        if self.transform is not None:
-            img = self.transform(img)        
+    def __getitem__(self, index):
+        label = self.targets[index]
 
+        if isinstance(self.data[index], str):
+            img = cv2.imread(self.data[index])
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        else:
+            img = self.data[index]
+
+        if img.shape[0] == 3: img = img.transpose(1,2,0)
+        
+        # 
+        if self.transformer is not None:
+            try:
+                img = self.transformer(img)
+            except:
+                img = self.transformer(image=img)['image']
+        
+        if isinstance(img, list):
+            for pic in img:
+                if not isinstance(pic, torch.Tensor):
+                    pic = transforms.ToTensor()(pic)
+                
+        else:
+            if not isinstance(img, torch.Tensor):
+                img = transforms.ToTensor()(img)
+            
         return img, label
 
     def __len__(self):
@@ -514,28 +607,66 @@ class MixDataset(data.Dataset):
             self.mix_balance(factor)
         
         elif strategy == 'complete':
-            self.data += self.new_dataset.data
-            self.targets += self.new_dataset.targets    
+            self.data += self.dataset.data
+            self.targets += self.dataset.targets    
 
         else:
             raise NotImplementedError("strategy not implemented")
+        return None
     
     def mix_balance(self, factor):
+        """        
+        using factor to downsample the old dataset
+        we need to modify this make it by class:
+        
+        1. sort by the index and select same num for each class
+        2. shuffle and get the dats
+        
+        the sort function can be seprate by this files
+        """
+        sort_dataset(self.dataset)
+       
+        num_cls_old = len(np.unique(self.dataset.targets))
+        steps = np.bincount(self.dataset.targets)
+        
         # using the factor to balance the dataset
-        # calculate how much data we need to add
-        num_new = int(len(self.new_dataset) * factor)
+        # downsample the old dataset for now
+        num_new = int(len(self.dataset) * factor) 
+        num_new = round(num_new / num_cls_old)
 
-        # random new class's data 
-        idx = np.random.choice(len(self.new_dataset),num_new,replace=False)
-        self.data += [self.new_dataset.data[i] for i in idx]
-        self.targets += [self.new_dataset.targets[i] for i in idx]
+        # make num of each class balance
+        # random old class's data for each class
 
-        return 
+        # get the random mix of dataset. 
+        index = 0
+        for i in range(num_cls_old):
+            idx = np.random.permutation(steps[i])
+            selected_idx = idx[:num_new]
+            for j in selected_idx:
+                self.data.append(self.dataset.data[index+j])
+                self.targets.append(self.dataset.targets[index+j])
+
+            # using data augmentation 
+            if len(selected_idx) < num_new:
+                num_extra = num_new - len(selected_idx)
+
+                for k in range(num_extra):
+                    rd_idx = np.random.choice(selected_idx,1,replace=True)
+                    new_img  = self.dataset.data[index+rd_idx[0]]
+                    # new_img = self.transformer(new_img)
+                    new_img = self.augs(image=new_img)['image']
+
+                    self.data.append(new_img)
+                    self.targets.append(self.dataset.targets[index+rd_idx[0]])
+            
+            index += steps[i]
+        
+        return None
 
 if __name__ == "__main__":
     # test the whole process of this script
     
-    # ============================================SEPRATE VERSION TEST=================
+    # =========================================SEPRATE VERSION TEST============================
     # 1. get data by diff type 
     DATATYPE = 'cifar100'
     dataset = AllData(DATATYPE,istrain=0, save_path=r'/workspace/DownloadData')
@@ -563,4 +694,3 @@ if __name__ == "__main__":
     # 6. load the new dataset we generate after sampling
     res = AllData('LocalFiles', istrain=0, save_path=r'/workspace/DownloadData/cifar100_new')
     # ============================================INTEGRATE VERSION TEST=================
-

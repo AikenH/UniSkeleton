@@ -8,7 +8,8 @@
 __pycache__/
 *.py[cod]
 *$py.class
-
+*.rm-protection
+s2remote.sh
 # C extensions
 *.so
 

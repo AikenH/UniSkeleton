@@ -98,7 +98,6 @@ class m_ResNet(nn.Module):
         super(m_ResNet, self).__init__()
         # baisc unit which have default parameters
         self.block0 = nn.Sequential(OrderedDict([
-            # FIXME: remenber to modify this after the cifar example
             ('conv0',nn.Conv2d(3,64,7,stride=2,padding=3)),
             ('bn0', nn.BatchNorm2d(64)),
             ('relu0', nn.ReLU(inplace= True)),
@@ -216,7 +215,7 @@ class chooseResNet():
 
 # Test you model design here.
 if __name__ == "__main__":
-    modela = m_resnet152(100)
+    modela = m_resnet50(100)
     
     tempdata = torch.randn(32,3,56,56)
     # out = modela(tempdata)

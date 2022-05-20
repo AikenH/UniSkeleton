@@ -38,7 +38,6 @@ class Basicblock(nn.Module):
         out = self.relu1(out)
 
         out = self.conv2(out)
-        # NOTE: the bn's location and the resudual connect should be in attention
         out = self.bn2(out) 
         
         # consider whether we need downsample 
@@ -97,7 +96,6 @@ class m_ResNet(nn.Module):
     def __init__(self,block,num_classes,num_blocks,*args,**kwargs):
         super(m_ResNet, self).__init__()
         # baisc unit which have default parameters
-        # FIXME: modify block0 for the cifar(whose image is 32*32)
         self.block0 = nn.Sequential(OrderedDict([
             ('conv0',nn.Conv2d(3,64,3,stride=1,padding=1)),
             ('bn0', nn.BatchNorm2d(64)),
@@ -142,7 +140,7 @@ class m_ResNet(nn.Module):
                                         nn.BatchNorm2d(outplane*block.expandFactor))
             
         # 添加相应的layer，
-        # NOTE: the first layer is specific, becus the input dim is different
+
         # and the stride and the downsample is only in the first layer
         layers = []
         layers.append(block(inplane,outplane,stride=stride,Downsample=downsample))
@@ -163,10 +161,10 @@ class m_ResNet(nn.Module):
         
         # feature = out 
         
-        out = self.avgpool(out)
-        # resize 到一个维度
-        out = out.view(out.size(0),-1)
-        out = self.fc(out)
+        # out = self.avgpool(out)
+        # # resize 到一个维度
+        # out = out.view(out.size(0),-1)
+        # out = self.fc(out)
 
         return out
         # return out,feature

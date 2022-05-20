@@ -18,7 +18,7 @@ class Recorder():
     def __init__(self, rec_dict = None, **kwargs):
         super(Recorder, self).__init__()
         self.recorder = {}
-        self.exceptKey = []
+        self.exceptKey = ['confi']
 
         self.count = 0
         
@@ -38,7 +38,7 @@ class Recorder():
                 self.recorder[k] = v 
         
         
-    @record_nbatch()
+    @record_nbatch(verbose=False)
     def update(self, rec_dict, **kwargs):
         # 通用的输出模块
         res = {}
@@ -50,7 +50,6 @@ class Recorder():
         # update dict by dict:key-value, which make the info more reliable 
         res['count'] = self.count
         
-    
         for k,v in rec_dict.items():
             res[k] = v
             if k in self.exceptKey: continue
@@ -59,7 +58,6 @@ class Recorder():
             else:
                 self.recorder[k] = v
             
-
         # combination rec_dict with kwargs  
         for k,v in kwargs.items():
             res[k] = v
@@ -69,19 +67,17 @@ class Recorder():
             else:
                 self.recorder[k] = v 
              
-
         res['epoch'] = self.recorder['epoch']
         res['itera'] = self.recorder['itera']
 
         return res 
     
-    @record_nbatch(mode = 'epoch output')
+    @record_nbatch(verbose=True)
     def final(self, doavg = True):
         if not doavg: return self.recorder
         
         temp = self.recorder['count']
         temp_e = self.recorder['epoch']
-
         
         for k,v in self.recorder.items():
             self.recorder[k] = v / self.count
@@ -97,7 +93,7 @@ class Recorder():
         
         self.recorder['epoch'] = temp + 1
         self.recorder['itera'] = self.count
-        
+
         self.count = 0
     
     def addExcept(self,keys):
@@ -143,10 +139,63 @@ class Metric_cal():
         
         # return dict with metrics key
         return self.out_dict
+    
+    def calculate_each_acc():
+        return None
+    
+    @text_in_tensorboard(Title='The PR of confi filter')
+    def confi_metric(self, new_labels, new_total, num_news=79, verbose=True):
+        """
+        desc: calculate the PR for the confidece filter, mapping label to new and old 
+        param: 
+            new_labels: the collections of datas which is be filtered by confidence
+            new_total: the nums of all the new datas
+            num_news: the num_news to set new or old
+        return:
+            the PR of the confidence filter, this will be add in the tensorboard
+        """
+        # set the format of output 
+        fmt = "Precisions: {:<.3f}  \t  \n Recall: {:<.3f}  \t  \n"
+        
+        # change the data status on cpu
+        
+        c_new_labels = torch.cat(new_labels).cpu().numpy()
 
-    # NOTE: 在logging接受的模块都多添加一个str的选项，作为相应的新的输出
+        # calculate the PR
+        precision = len(np.where(c_new_labels>num_news)[0])/len(c_new_labels)
+        recall = len(np.where(c_new_labels>num_news)[0])/new_total
+
+        # output the PR
+        res = fmt.format(precision,recall)
+        if verbose: print(res)
+        
+        return res
+        
+    
+    @text_in_tensorboard(Title="new_cls_confi")
+    def calculate_each_confi(self, num_cls, pr_res_value, pr_labels, ):
+        """
+        using decorator to add the result 
+        """
+        meanv = 1./ num_cls
+        pr_res_value.squeeze_(dim=1)
+
+        belong_beyond_cls = pr_labels >= num_cls
+        confi_max = [pr_res_value[i] for i in range(len(belong_beyond_cls)) if belong_beyond_cls[i]]
+        confi = [(confi_max[i]-meanv)/(1-meanv) for i in range(len(confi_max))]
+
+        from itertools import groupby
+        confi.sort()
+        confi_group_by = " "
+        for k, g in groupby(confi, key=lambda x: x//0.1):
+            confi_group_by += "{:<.3f}-{:<.3f} : {}  \t  \n".format(k*0.1,(k+1)*0.1,len(list(g)))
+        if True:
+            print(confi_group_by)
+
+        return confi_group_by
+
 def topn_acc(labels, pred, topn =(1,5), use_skl = False, **kwargs):  
-    # !! 这里注意，输入的Label标准形式而不是onehot的形式，如果需要加入支持的话，我们可能需要进行额外的转化
+    # ! 这里注意，输入的Label标准形式而不是onehot的形式，如果需要加入支持的话，我们可能需要进行额外的转化
     # 但是通常情况下不需要这一点
     batch_size = pred.size(0)
     key_name = 'acc'

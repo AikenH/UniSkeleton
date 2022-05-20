@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 import torch 
 
-def leastConfi(pred,mapfuc=None):
+def leastConfi(pred,mapfuc=None,avg=True):
     """以预测值中的最大概率值作为预测的置信度，
     区间可以划分为：[1/num_class,1] -> [0,1]
 
@@ -29,7 +29,10 @@ def leastConfi(pred,mapfuc=None):
     else:
         ...
     
-    return BConfidence.mean()
+    if avg:
+        return BConfidence.mean()
+    else:
+        return BConfidence.mean(), BConfidence
 
 def EntropyConfi(pred,isAvg=True):
     """按照熵值来分析置信度（信息的不稳定程度）

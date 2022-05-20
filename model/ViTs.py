@@ -9,7 +9,6 @@
 # https://www.jianshu.com/p/d50c1855e583
 # type: Swin-T, Swin-S, Swin-B, Swin-L
 # NOTE: modify the tag of model, make it more readable when print it out
-# FIXME: IO Speed for Training 
 #   when we training swin-transformer we will find that the GPU is not always occupy 100%
 #   my program meet the bottleneck of data loading for ImageNet
 #   should try some way to solve this.
@@ -312,7 +311,7 @@ class m_swin(nn.Module):
         x = self.stage2(x)
         x = self.stage3(x)
         x = self.stage4(x)
-        x = x.mean(dim=[2,3])
+        # x = x.mean(dim=[2,3])
         # return self.mlp_head(x)
         return x
 

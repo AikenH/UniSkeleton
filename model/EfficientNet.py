@@ -252,6 +252,7 @@ class ChooseEfficientNet():
         if self.type == 'EfficientNetb0':
             params = {
                 'CHANNELS': [16,24,40,80,112,192,320],
+                # 'LAYERS': [1,2,2,3,3,4,1],
                 'LAYERS': [1,2,2,3,3,4,1],
                 'STEM_W': 32,
                 'HEAD_W': 1280,

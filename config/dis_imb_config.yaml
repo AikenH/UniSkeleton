@@ -1,0 +1,190 @@
+# this part is used to be overwritten by the argparase
+# so
+val_n: 1
+apex: false
+cuda_devices: "0"
+
+resume: true
+save_pth: save_model
+ckpt_pth: save_model/ckpt/causal_cifar_rs50_cifar100/both_scl_7213.pt
+# ckpt_pth: save_model/ckpt/mlp_cifar_rs50_cifar100/new_756.pt
+metrics_type: !!python/tuple ["acc1", "acc5"]
+
+training_mode: imb
+logger:
+  logname: train_cifar100_resnet50
+  console_level: 2
+  prefix: null # set null will get the time as prefix
+  log_dir: ./log # this default setting we usually donot change it
+  subfix: final_der_ 
+
+networks:
+  {
+    feat_model: cifar_rs50,
+    cls_model: causal,
+    num_cls: 80,
+    hidden_layers: null,
+    pretrain: false,
+    in_dim: 2048,
+    feature_vis: true,
+    activation: null,
+    dropout: 0.5,
+  }
+
+# istrain: 0 train | 1 test  | else val
+data:
+  # now we support full(new+imb), imb, new  3 way to define the data or null
+  preprocess: both
+  transformer: cifar100
+  dataset: {
+      datatype: cifar100,
+      save_path: ../DownloadData,
+      istrain: 0,
+      needMap: false,
+      num_new: 20,
+      imb_factor: 0.1,
+      strategy: exp,
+      # 0.1->10 0.02->50, 0.01->100
+      # imb_factor: 0.01,
+      # strategy: exp,
+      decay: 0.5,
+      sort: false,
+      num_cls: 100,
+      random_seed: 888,
+    }
+
+pretrain:
+  ispretrain: false
+  using_projector: true
+  diff_lr: false
+  pretrain_opt:
+    {
+      type: train,
+      pth: save_model/pre_train/causal_cifar_rs50_cifar100/1024_81_imb.pt,
+    }
+  epoch: 500
+  # the num_cls is the projector's out dim
+  network:
+    {
+      feat_model: cifar_rs50,
+      cls_model: causal,
+      num_cls: 10,
+      hidden_layers: !!python/tuple [512, 512],
+      pretrain: false,
+      in_dim: 2048,
+      feature_vis: true,
+      activation: null,
+    }
+  datasample: all
+  dataset:
+    {
+      datatype: cifar10,
+      save_path: ../DownloadData,
+      istrain: 0,
+      num_cls: 100,
+      random_seed: 888,
+    }
+
+  dataload_opt:
+    {
+      batch_size: 1024,
+      shuffle: true,
+      num_workers: 28,
+      pin_memory: false,
+      drop_last: true,
+      prefetch_factor: 5,
+    }
+
+  loss_opt: { LOSSTYPE: ntxent, memory_size: 0, temperature: 0.07 }
+  optim: SGD
+  optim_opt: { lr: 0.01, momentum: 0.9, weight_decay: 0.0005 }
+  # sche_opt: { milestones: !!python/tuple [100, 160, 260], gamma: 0.2 }
+  sche_opt:
+    {
+      mode: max,
+      factor: 0.2,
+      patience: 10,
+      min_lr: !!float 1e-5,
+      verbose: true,
+    }
+
+training_opt:
+  loss: CE
+  notzeroloss: 0.12
+  optimizer: SGD
+  optim_opt: { lr: 0.2 }
+  clf_optim_opt: { lr: 0.2, momentum: 0.9, weight_decay: 0.0005 }
+  # optim_opt: {lr: 0.1, betas: !!python/tuple [0.9,0.999], eps: !!float 1e-8, weight_decay: 0.1}
+  # schedule: auto
+  schedule: multistep
+  sche_opt: { milestones: !!python/tuple [60, 120, 160, 190], gamma: 0.1, verbose: true}
+  # sche_opt:
+  #   {
+  #     mode: max,
+  #     factor: 0.5,
+  #     patience: 15,
+  #     min_lr: !!float 1e-8,
+  #     verbose: true,
+  #   }
+  warmup: true
+  warm_up: { multiplier: 1, total_epoch: 10 }
+  freq_out: 20
+  train:
+    {
+      num_epochs: 180,
+      drop_rate: 0.5,
+      patience: 200,
+      iterations: 100,
+      verbose: true,
+    }
+  dataopt:
+    {
+      batch_size: 256,
+      shuffle: true,
+      sampler: null,
+      num_workers: 28,
+      collate_fn: null,
+      pin_memory: false,
+      drop_last: true,
+      prefetch_factor: 5,
+    }
+  combiner_opt: {strategy: 'linear'}
+  max_mix_epoch: 180
+  criterion: { alpha: 0, beta: 0 }
+
+online:
+  enable: true
+  resume: false
+  ckpt: save_model/distill/mlp_cifar_rs50_cifar100/2022-01-17_12-07-37_PM.pt
+  cluster_t: kmeans
+  cluster_dict: { n_clusters: 20, init: k-means++, random_state: 0 }
+  downsample_t: pca
+  downsample_dict: { n_components: 20, random_state: 0 }
+  projecter: false
+  optimizer: SGD
+  optim_opt: { lr: 0.1 }
+  clf_optim_opt: { lr: 0.1, momentum: 0.9, weight_decay: 0.0005 }
+  notzeroloss: 0.03
+  dis_criterion: kd_c
+  dis_loss_opt: {num_classes: 100, factor: 0.9, temperature: 2.0}
+  # factor = 0.9
+  # schedule: auto
+  schedule: multistep
+  sche_opt: {
+    milestones: !!python/tuple [60,120,180],
+    gamma: 0.1,
+    verbose: true
+    }
+  # sche_opt:
+  #   {
+  #     mode: max,
+  #     factor: 0.5,
+  #     patience: 10,
+  #     min_lr: !!float 1e-5,
+  #     verbose: true,
+  #   }
+  warmup: true
+  warmup_opt: { multiplier: 1, total_epoch: 10 }
+  combiner_opt: {strategy: 'new_linear'}
+  epoches: 220
+  mix_epoches: 200

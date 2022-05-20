@@ -179,7 +179,6 @@ class EfficientNetModel(nn.Module):
         # process of data: rescaling- normalize- zeropadding which should be done on dataloader
         
         # STEM layer: 考虑可定制的话，实际上可能可以独立成一个模块
-        # ATTENTION: 第一个stride最好还是设为一，这种情况下才能更好的捕捉图片的信息，不会导致一些训练准确率特别低的问题
         self.stem = nn.Sequential(OrderedDict([
             ('STEM_conv', nn.Conv2d(IN_CHANNEL,STEM_W,3,stride=1,padding=1,bias=False)),
             ('STEM_bn',nn.BatchNorm2d(STEM_W)),

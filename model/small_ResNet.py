@@ -38,7 +38,7 @@ class Basicblock(nn.Module):
         out = self.relu1(out)
 
         out = self.conv2(out)
-        # NOTE: the bn's location and the resudual connect should be in attention
+
         out = self.bn2(out) 
         
         # consider whether we need downsample 
@@ -97,7 +97,6 @@ class m_ResNet(nn.Module):
     def __init__(self,block,num_classes,num_blocks,*args,**kwargs):
         super(m_ResNet, self).__init__()
         # baisc unit which have default parameters
-        # FIXME: modify block0 for the cifar(whose image is 32*32)
         self.block0 = nn.Sequential(OrderedDict([
             ('conv0',nn.Conv2d(3,64,3,stride=1,padding=1)),
             ('bn0', nn.BatchNorm2d(64)),
@@ -110,6 +109,7 @@ class m_ResNet(nn.Module):
         self.block3 = self._make_layer(block,128*block.expandFactor,256,num_blocks[2],stride=2)
         self.block4 = self._make_layer(block,256*block.expandFactor,512,num_blocks[3],stride=2)
 
+        # !! del fc in here which we will replace this in the mlp for assemble
         # fc and avg pooling 
         self.avgpool = nn.AdaptiveAvgPool2d((1,1))
         self.fc = nn.Linear(512*block.expandFactor,num_classes)
@@ -142,7 +142,7 @@ class m_ResNet(nn.Module):
                                         nn.BatchNorm2d(outplane*block.expandFactor))
             
         # 添加相应的layer，
-        # NOTE: the first layer is specific, becus the input dim is different
+
         # and the stride and the downsample is only in the first layer
         layers = []
         layers.append(block(inplane,outplane,stride=stride,Downsample=downsample))
@@ -216,7 +216,7 @@ class cifarResNet():
 
 # Test you model design here.
 if __name__ == "__main__":
-    modela = m_resnet152(100)
+    modela = m_resnet50(100)
     
     tempdata = torch.randn(32,3,56,56)
     # out = modela(tempdata)

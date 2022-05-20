@@ -1,49 +1,52 @@
+# this part is used to be overwritten by the argparase
+# so 
+# [ ] adapt the warmup to all the place
 val_n: 1
 apex: false
-cuda_devices: "0"
+cuda_devices: "3"
 
 resume: false
 save_pth: save_model
 ckpt_pth: save_model/pre_train/mlp_cifar_rs18/68_1024_simclr.pt
 metrics_type: !!python/tuple ["acc1", "acc5"]
 
+training_mode: imb
 logger:
-  logname: train_cifar100_resnet50
+  logname: LTcifar10 
   console_level: 2
   prefix: null # set null will get the time as prefix
   log_dir: ./log # this default setting we usually donot change it
-  subfix: B_
+  subfix: Scl_Causal_
 
 # !! the num of class should be control by the dataset part
 networks:
   {
     feat_model: cifar_rs50,
-    cls_model: mlp,
-    num_cls: 80,
+    cls_model: causal,
+    num_cls: 100,
     hidden_layers: null,
     pretrain: false,
     in_dim: 2048,
     feature_vis: true,
     activation: null,
-    dropout: 0.5,
+    dropout: 0,
   }
 
 # istrain:0 train | 1 test  | else val
 data:
   # now we support full(new+imb), imb, new  3 way to define the data or null
-  preprocess: both
+  preprocess: imb
   transformer: cifar100
-  dataset:
-    {
+  dataset: {
       datatype: cifar100,
       save_path: ../DownloadData,
       istrain: 0,
       needMap: false,
-      num_new: 20,
-      imb_factor: 0.5,
-      strategy: step,
+      num_new: 2,
+      imb_factor: 0.01,
+      strategy: exp,
       # 0.1->10 0.02->50, 0.01->100
-      # imb_factor: 0.1, 
+      # imb_factor: 0.01,
       # strategy: exp,
       decay: 0.5,
       sort: false,
@@ -52,11 +55,11 @@ data:
     }
 
 pretrain:
-  ispretrain: true
+  ispretrain: true 
   using_projector: true
-  diff_lr: false
+  diff_lr: true
   pretrain_opt:
-    { type: load, pth: save_model/pre_train/mlp_cifar_rs50_cifar100/1024_81.pt}
+    { type: load, pth: save_model/pre_train/causal_res50/1024_81_imb.pt }
   epoch: 500
   # the num_cls is the projector's out dim
   network:
@@ -67,10 +70,10 @@ pretrain:
       hidden_layers: !!python/tuple [512, 512],
       pretrain: false,
       in_dim: 2048,
-      feature_vis: false,
+      feature_vis: true,
       activation: null,
     }
-
+  datasample: imb
   dataset:
     {
       datatype: cifar100,
@@ -92,25 +95,54 @@ pretrain:
 
   loss_opt: { LOSSTYPE: ntxent, memory_size: 0, temperature: 0.07 }
   optim: SGD
-  optim_opt: { lr: 0.01, momentum: 0.9, weight_decay: 0.0005 }
+  optim_opt: { lr: 0.01, momentum: 0.9, weight_decay: 0.005 }
   # sche_opt: { milestones: !!python/tuple [100, 160, 260], gamma: 0.2 }
-  sche_opt: {mode: max, factor: 0.2, patience: 10, min_lr: !!float 1e-8, verbose: true}
-
+  sche_opt:
+    {
+      mode: max,
+      factor: 0.2,
+      patience: 10,
+      min_lr: !!float 1e-8,
+      verbose: true,
+    }
 
 training_opt:
   loss: CE
   notzeroloss: 0.12
   optimizer: SGD
-  optim_opt: { lr: 0.1, momentum: 0.9, weight_decay: 0.005}
+  optim_opt: { lr: 0.1 }
+  clf_optim_opt: { lr: 0.1, momentum: 0.9, weight_decay: 0.0005 }
   # optim_opt: {lr: 0.1, betas: !!python/tuple [0.9,0.999], eps: !!float 1e-8, weight_decay: 0.1}
-  schedule: auto
-  # sche_opt: { milestones: !!python/tuple [60, 110, 180, 240, 300], gamma: 0.5}
-  sche_opt: {mode: max, factor: 0.5, patience: 10, min_lr: !!float 1e-8, verbose: true}
+  # schedule: auto
+  schedule: multistep
+  sche_opt: { milestones: !!python/tuple [60, 120, 160, 190], gamma: 0.1,verbose: true}
+  # sche_opt:
+  #   {
+  #     mode: max,
+  #     factor: 0.5,
+  #     patience: 15,
+  #     min_lr: !!float 1e-5,
+  #     verbose: true,
+  #   }
+  # bbn warmup supported and the strong baselien
+  warmup: true
+  warm_up: 
+    {
+      multiplier: 1,
+      total_epoch: 10,
+    }
   freq_out: 20
-  train: { num_epochs: 350, drop_rate: 0.5, patience: 40, iterations: 100, verbose: true}
+  train:
+    {
+      num_epochs: 200,
+      drop_rate: 0.5,
+      patience: 71,
+      iterations: 100,
+      verbose: true,
+    }
   dataopt:
     {
-      batch_size: 512,
+      batch_size: 128,
       shuffle: true,
       sampler: null,
       num_workers: 28,
@@ -119,14 +151,17 @@ training_opt:
       drop_last: true,
       prefetch_factor: 5,
     }
+  combiner_opt: {startegy: 'linear'}
   criterion: { alpha: 0, beta: 0 }
+  max_mix_epoch: 180 
 
 online:
+  # training_model: imb
   enable: false
   resume: false
   ckpt: save_model/distill/mlp_cifar_rs18_cifar100/2021-12-14_09-24-44_PM.pt
   cluster_t: kmeans
   cluster_dict: { n_clusters: 20, init: k-means++, random_state: 0 }
   downsample_t: pca
-  downsample_dict: { n_components: 30, random_state: 0}
+  downsample_dict: { n_components: 20, random_state: 0 }
   projecter: false

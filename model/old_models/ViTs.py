@@ -8,8 +8,7 @@
 # https://cloud.tencent.com/developer/article/1819813
 # https://www.jianshu.com/p/d50c1855e583
 # type: Swin-T, Swin-S, Swin-B, Swin-L
-# NOTE: modify the tag of model, make it more readable when print it out
-# FIXME: IO Speed for Training 
+
 #   when we training swin-transformer we will find that the GPU is not always occupy 100%
 #   my program meet the bottleneck of data loading for ImageNet
 #   should try some way to solve this.
@@ -33,7 +32,7 @@ class PatchEmbed(nn.Module):
     Downsampling for the Inputs,
     Using 1*1 abjust the channels,
     """
-    # NOTE: consider this type of down-sampling's benifit and shortcoming
+
     def __init__(self, in_channels,out_channels,downscaling_factor):
         super(PatchEmbed, self).__init__()
         # get the scaling rate

@@ -1,0 +1,81 @@
+# @AikenH 2021 
+# Config file for training a framework
+# Focus on the dateset becuz of the dir is hard to set
+# Provide diff type of optimizer or train setting by comment
+# Enable one as you need 
+
+cuda_devices: '0'
+val_n: 1
+apex: true
+
+ckpt_path: save_model/ckpt/Defaults_resnet18/2021-10-26_03-46-18_PM.ckpt
+save_path: save_model/ckpt
+# ===========================================================
+# For now we donot support this.
+# May intergrate it in the future version. 
+# Can Get those model name in model/modename.py
+networks:
+  feat_model: cifar_rs18
+  # EfficientNetb0 / Swin-T / resnet18
+  cls_model: mlp
+  num_cls: 10
+  hidden_layers: null
+  pretrain: false
+  in_dim: 512
+  feature_vis: true
+  activation: null
+
+# ===========================================================
+# istrain:0 train | 1 test  | else val
+data:
+  # now we support full(new+imb), imb, new  3 way to define the data or null
+  preprocess: null
+  dataset:
+    datatype: cifar10
+    save_path: ../DownloadData
+    sort: false
+    istrain: 0
+    num_new: 10
+    imb_factor: 0.3
+    strategy: step
+    decay: 0.1
+    num_cls: 10
+
+# ===========================================================
+# dataset:
+#   datatype: ImageNet
+#   save_path: ../DownloadData/ImageNet
+#   sort: false
+#   istrain: false
+#   num_new: 10
+#   imb_factor: 0.3
+#   strategy: step
+#   decay: 0.1
+#   num_cls: 1000
+
+# ===========================================================
+logger:
+  logname: train_cifar10_resnet18
+  log_dir: ./log
+  prefix: null
+  console_level: 1
+
+# ===========================================================
+training_opt: 
+  loss: CE
+  notzeroloss: null
+  optimizer: SGD
+  optim_opt: {lr: 0.01, momentum: 0.9, weight_decay: 0.001}
+  # optim_opt: {lr: 0.1, betas: !!python/tuple [0.9,0.999], eps: !!float 1e-8, weight_decay: 0.1}
+  schedule: step
+  sche_opt: {step_size: 20, gamma: 0.2}
+  freq_out: 10
+  train: {num_epochs: 150, drop_rate: 0.5, val_n: 5, early_stop: 50, iterations: 100}
+  dataopt: {batch_size: 128, shuffle: true, 
+            sampler: null, num_workers: 28, 
+            collate_fn: null, pin_memory: false,
+            drop_last: true} 
+  criterion: {alpha: 0, beta: 0}
+
+# ===========================================================
+metrics_type: !!python/tuple ['acc1','acc5']

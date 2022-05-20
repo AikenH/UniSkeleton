@@ -13,6 +13,7 @@ def argparser():
         [config]: [dict:]
     """
     parser = argparse.ArgumentParser()
+    # parser.add_argument('--local_rank', type=int, default=0)
     parser.add_argument('--cfg', default = r'config\mini_imagenet_resnet.yaml', type = str, help = "load configuration")
     parser.add_argument('--seed',default = None, type = int,
                          help = "using random seed to make experiments reproducible") 
@@ -35,7 +36,7 @@ def argparser():
     # parser.add_argument('--fh_logL',default = 'WARNING', type = str, help = 'log file level')
 
     # Ckpt相关参数:存储模型的地址应该在配置文件中，迭代次数啊啥的就存在ckpt文件中就好
-    parser.add_argument('--resume', default = False, action = 'store_true', help = 'load model or ckpt' )
+    parser.add_argument('--resume', default = None, help = 'load model or ckpt' )
     parser.add_argument('--resume_type',default = 'ckpt',type = str, help = 'is optional if u want to describe or not is fine')
     parser.add_argument('--ckpt_pth',default = None, type = str, help = "where to save and load ckpy ")
     
@@ -75,6 +76,9 @@ def updata(config, args):
             if value is None: continue 
             config[key] = value
     
+    if config['resume'] == True:
+        config['pretrain']['ispretrain'] = False
+        
     return config
     
     

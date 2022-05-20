@@ -1,0 +1,86 @@
+# @AikenH 2021 
+# Config file for training a framework
+# Focus on the dateset becuz of the dir is hard to set
+# Provide diff type of optimizer or train setting by comment
+# Enable apex as you need 
+
+cuda_devices: '1'
+val_n: 5
+apex: true
+resume: true
+ckpt_pth: save_model/ckpt/mlp_EfficientNetb0/2021-11-11_09-57-44_PM.pt
+save_pth: save_model/ckpt
+# ===========================================================
+# For now we donot support this.
+# May intergrate it in the future version. 
+# Can Get those model name in model/modename.py
+networks:
+  feat_model: EfficientNetb0
+  # EfficientNetb0 / Swin-T / resnet18
+  cls_model: mlp
+  num_cls: 100
+  hidden_layers: null
+  pretrain: false
+  in_dim: 1280
+  feature_vis: true
+  activation: null
+  dropout: 0.5
+
+# ===========================================================
+# istrain:0 train | 1 test  | else val
+data:
+  # now we support full(new+imb), imb, new  3 way to define the data or null
+  preprocess: null
+  dataset:
+    datatype: cifar100
+    save_path: ../DownloadData
+    istrain: 0
+    needMap: false
+    num_new: 0
+    imb_factor: 0.3
+    strategy: step
+    decay: 0.1
+    sort: false
+    num_cls: 100
+
+# ===========================================================
+# dataset:
+#   datatype: ImageNet
+#   save_path: ../DownloadData/ImageNet
+#   sort: false
+#   istrain: false
+#   num_new: 10
+#   imb_factor: 0.3
+#   strategy: step
+#   decay: 0.1
+#   num_cls: 1000
+
+# ===========================================================
+logger:
+  logname: train_cifar100_resnet18
+  console_level: 1
+  prefix: null # set null will get the time as prefix 
+  log_dir: ./log # this default setting we usually donot change it 
+
+
+# ===========================================================
+training_opt: 
+  loss: CE
+  notzeroloss: null
+  optimizer: SGD
+  optim_opt: {lr: 0.1, momentum: 0.9, weight_decay: 0.0005}
+  # optim_opt: {lr: 0.1, betas: !!python/tuple [0.9,0.999], eps: !!float 1e-8, weight_decay: 0.1}
+  # schedule: step
+  # sche_opt: {step_size: 50, gamma: 0.2}
+  schedule: multistep
+  sche_opt: {milestones: !!python/tuple [60,110,180], gamma: 0.2}
+  freq_out: 10
+  train: {num_epochs: 250, drop_rate: 0.5, early_stop: 1000, iterations: 100}
+  dataopt: {batch_size: 128, shuffle: true, 
+            sampler: null, num_workers: 28, 
+            collate_fn: null, pin_memory: false,
+            drop_last: true} 
+  criterion: {alpha: 0, beta: 0}
+
+# ===========================================================
+metrics_type: !!python/tuple ['acc1','acc5']
