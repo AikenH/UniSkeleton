@@ -40,7 +40,7 @@ data:
       istrain: 0,
       needMap: false,
       num_new: 20,
-      imb_factor: 0.5,
+      imb_factor: 0.1,
       strategy: step,
       # 0.1->10 0.02->50, 0.01->100
       # imb_factor: 0.1, 
@@ -52,7 +52,7 @@ data:
     }
 
 pretrain:
-  ispretrain: true
+  ispretrain: false
   using_projector: true
   diff_lr: false
   pretrain_opt:
