@@ -74,6 +74,49 @@ training_opt:
 
 需要注意的是，为了在Config中配置模型组成和损失组成，在Loss和Model中的`init.py`，编写了相应代码进行注册，因此实现新的模块后需要仿照其样式进行register。
 
+##  Usage of Modules
+
+该部分介绍如何使用一些模块，以及部分模块的运行逻辑。
+
+### Log_Wrapper
+
+使用python中的**Decorator**机制，通过装饰器修饰函数，便于记录算运行过程，并将相应的数据上传至Tensorboard，避免该类代码重复使用时需要重复编写，该部分代码主要实现于`util-wraps.py`。
+
+- `log_timethis`：记录装饰函数的运行时间，并通过指定的logger进行输出。
+- `timethis`：同样记录函数运行时间，但仅使用print输出，不通过logger记录。
+
+> 注意事项（缺陷）：log版本的需要在`util-runningscript.py-init_log`中进行logger的指定，由于第一次编写装饰器，这样的组织并不理想，应使用别的组织方式来进行log的注册
+
+- **BASE** `record_nbatch`：Log和Tensorboard的核心记录装饰器，需要对其初始化writer和logger，该装饰器接受函数的输出（Dict）。
+  - Tensorboard部分，通过字典的关键字划分为`loss`、`acc`、`weights`三类，记录相应的参数曲线。
+  - Log部分，通过**EPOCH**关键字，对log进行info和debug不同level的输出和记录。
+- **TEXT**`text_in_tensorboard`：  Tensorboard的文本装饰器，需要初始化writer，该装饰器的输出接受（Str），使用设定的Title参数，将文本加入Tensorboard。
+- **FIGURE**`visual_1s`：Tensorboard的图像装饰器，需要初始化weiter，该装饰器基于PhaseName执行add_figure操作。
+
+该部分代码的介绍大体如上所述，初始化的方式参考`runningscript.py-init_log`，使用的方式如下：
+
+```python
+@log_timethis(desc = "training")
+def func(*args,**kwargs):
+    pass
+
+@visual_1s(phaseName = "first_batches")
+def datavisualization(...):
+    pass
+@visual_1s(phaseName = "tsne result")
+def tsne_visual(...):
+    pass
+
+@record_nbatch(verbose=False)
+def update(*args, **kwargs):
+    pass
+# 实际使用中可能会涉及到phase的转变如下，
+# 其中set_phase是wrapper的函数，
+# 具体的使用参考runningScript中的train或test函数
+update.set_phase(phase + 'test_epoch')
+...
+```
+
 ## Configuration
 
 配置读取过程包含在argparser中，流程如下：读取命令行参数保存至Args ➡ 读取YAML文件至Configs ➡ 利用Args更新并合并到Configs.
@@ -117,7 +160,7 @@ cuda_devices: "0"                              # Cuda设备设置
 resume: true                                   # 恢复训练/载入模型
 save_pth: save_model                           # 模型保存目录
 ckpt_pth: save_model/ckpt/.../both_scl_7213.pt # 读取的模型地址
-metrics_type: !!python/tuple ["acc1", "acc5"]  # 评价指标
+metrics_type: !!python/tuple ["acc1", "acc5"]  # 评价指标，可以选择计算的类型，在util-metric.py-Metric_cal中实现
 
 training_mode: imb                             # 训练模式【imb，null，】
 logger:
@@ -127,6 +170,8 @@ logger:
   log_dir: ./log                               # .log和tensorboard文件的存储路径
   subfix: final_der_                           # 当前训练的外层目录名
 ```
+
+
 
 #### Model模型配置
 
@@ -141,36 +186,38 @@ networks:
     num_cls: 100,           # 最终输出的类别预测（for fc）
     hidden_layers: null,    # 隐含层
     pretrain: false,        # 已丢弃？
-    in_dim: 2048,           # xxxx
-    feature_vis: true,      # xxxx
-    activation: null,       # xxxx
-    dropout: 0.5,           # xxxx
+    in_dim: 2048,           # 输入Clf的维度（即特征输出的维度）
+    feature_vis: true,      # 是否输出特征提取器的提取结果
+    activation: null,       # 设置激活函数类型（通常使用模型中自带的激活函数）
+    dropout: 0.5,           # ...
   }
 ```
 若要使用自己定义的feat_model（Backbone）和cls_model（Classifier），在编写完相应的模块后，在`model/__init__.py`中注册并赋予其对应的关键词，并完善Assemble函数的相关逻辑。
 
 #### Data数据配置
 
+通过该部分的参数设置，在所有**训练进程之前**初始化各类数据集，可以在后续的训练进程中调用
+
 ```yaml
 # istrain: 0 train | 1 test  | else val
+# imb_factor: 0.1->10 0.02->50, 0.01->100
+# strategy: exp
+# 上述两者结合起来是长尾的默认实验场景
 data:
-  preprocess: both
-  transformer: cifar100
+  preprocess: both                # 数据采样模式选择（imb采样长尾、采样新类、采样长尾后选择新类）
+  transformer: cifar100           # dataset使用的数据增强策略
   dataset: {
-      datatype: cifar100,
-      save_path: ../DownloadData,
-      istrain: 0,
-      needMap: false,
-      num_new: 20,
-      imb_factor: 0.1,
-      strategy: exp,
-      # 0.1->10 0.02->50, 0.01->100
-      # imb_factor: 0.01,
-      # strategy: exp,
-      decay: 0.5,
-      sort: false,
-      num_cls: 100,
-      random_seed: 888,
+      datatype: cifar100,         # 使用什么数据集
+      save_path: ../DownloadData, # 数据集的存储地址
+      istrain: 0,                 # 模式选择，
+      needMap: false,             # 需要Check，是否建立标签到Index的映射，
+      num_new: 20,                # 如果启用New采样方法，选择多少类别作为新类
+      imb_factor: 0.1,            # 如果启用Imb采样，长尾采样参数的设置
+      strategy: exp,              # 使用何种长尾采样方法，默认exp，可自己实现其余策略
+      decay: 0.5,                 # 已抛弃，用于其余采样方法中的参数衰减
+      sort: false,                # 是否对数据集进行排序
+      num_cls: 100,               # CHeck
+      random_seed: 888,           # ...
     }
 
 ```
@@ -179,52 +226,48 @@ data:
 
 ```yaml
 pretrain:
-  ispretrain: false
-  using_projector: true
-  diff_lr: false
+  ispretrain: false                                                        # 预训练开关
+  using_projector: true                                                    #
+  diff_lr: false                                                           # 默认False，在该部分暂时没有使用区别的学习率
   pretrain_opt:
     {
-      type: train,
-      pth: save_model/pre_train/causal_cifar_rs50_cifar100/1024_81_imb.pt,
+      type: train,                                                         # 【Train, Load】 选择使用训练好的预训练模型还是加载预训练模型
+      pth: save_model/pre_train/causal_cifar_rs50_cifar100/1024_81_imb.pt, # 模型的存储地址
     }
-  epoch: 500
-  # the num_cls is the projector's out dim
-  network:
+  epoch: 500                                                               # 预训练的Epoch上限
+  network:                                                                 # 模型设计
     {
-      feat_model: cifar_rs50,
-      cls_model: causal,
-      num_cls: 10,
-      hidden_layers: !!python/tuple [512, 512],
-      pretrain: false,
-      in_dim: 2048,
-      feature_vis: true,
-      activation: null,
+      feat_model: cifar_rs50,                                              # 特征提取器模型
+      cls_model: causal,                                                   # 分类器模型
+      num_cls: 10,                                                         # 最终输出维度（projector的输出维度）
+      hidden_layers: !!python/tuple [512, 512],                            # fc的隐含层参数
+      pretrain: false,                                                     # 丢弃
+      in_dim: 2048,                                                        # 特征输出维度，Projector的输入维度
+      feature_vis: true,                                                   # 是否输出中间特征（不影响代码运行，可打开监控）
+      activation: null,                                                    # 激活函数设置
     }
-  datasample: all
-  dataset:
+  datasample: all                                                          # 处理数据用于模型预训练，无标注数据 【all：使用所有数据，imb使用长尾采样处理过的数据】
+  dataset:                                                                 # 类似上述的数据设置（主要为了All）
     {
       datatype: cifar10,
       save_path: ../DownloadData,
       istrain: 0,
-      num_cls: 100,
+      num_cls: 10,
       random_seed: 888,
     }
-
-  dataload_opt:
+  dataload_opt:                                                            # Dataloader的参数，其实直接对照表就行了
     {
-      batch_size: 1024,
-      shuffle: true,
-      num_workers: 28,
-      pin_memory: false,
-      drop_last: true,
-      prefetch_factor: 5,
+      batch_size: 1024,                                                    # ...
+      shuffle: true,                                                       # ...
+      num_workers: 28,                                                     # ...
+      pin_memory: false,                                                   # ...
+      drop_last: true,                                                     # ...
+      prefetch_factor: 5,                                                  # ...
     }
-
-  loss_opt: { LOSSTYPE: ntxent, memory_size: 0, temperature: 0.07 }
-  optim: SGD
-  optim_opt: { lr: 0.01, momentum: 0.9, weight_decay: 0.0005 }
-  # sche_opt: { milestones: !!python/tuple [100, 160, 260], gamma: 0.2 }
-  sche_opt:
+  loss_opt: { LOSSTYPE: ntxent, memory_size: 0, temperature: 0.07 }        # 自监督学习损失函数设置
+  optim: SGD                                                               # 优化器选择
+  optim_opt: { lr: 0.01, momentum: 0.9, weight_decay: 0.0005 }             # 和优化器对应的参数设置
+  sche_opt:                                                                # 默认设置为自动学习率衰减模式，自动调节学习率，需要别的策略可以自己定制一下
     {
       mode: max,
       factor: 0.2,
@@ -236,38 +279,29 @@ pretrain:
 
 #### Training训练过程控制
 
-```yaml
+基本的参数控制模块，预训练，增量训练也参照该参数设置的样式进行，作为最主要的参考。
 
-training_opt:
-  loss: CE
-  notzeroloss: 0.12
-  optimizer: SGD
-  optim_opt: { lr: 0.2 }
-  clf_optim_opt: { lr: 0.2, momentum: 0.9, weight_decay: 0.0005 }
-  # optim_opt: {lr: 0.1, betas: !!python/tuple [0.9,0.999], eps: !!float 1e-8, weight_decay: 0.1}
-  # schedule: auto
-  schedule: multistep
+```yaml
+training_opt:                                                                            # 基础训练部分参数
+  loss: CE                                                                               # 设置基础损失函数类型
+  notzeroloss: 0.12                                                                      # 非零损失偏差
+  optimizer: SGD                                                                         # 优化器
+  optim_opt: { lr: 0.2 }                                                                 # 分类器的学习率设置
+  clf_optim_opt: { lr: 0.2, momentum: 0.9, weight_decay: 0.0005 }                        # 判别器和默认的学习率设置
+  schedule: multistep                                                                    # 梯度下降方法设置，和下面的sche_opt相互组合
   sche_opt: { milestones: !!python/tuple [60, 120, 160, 190], gamma: 0.1, verbose: true}
-  # sche_opt:
-  #   {
-  #     mode: max,
-  #     factor: 0.5,
-  #     patience: 15,
-  #     min_lr: !!float 1e-8,
-  #     verbose: true,
-  #   }
-  warmup: true
+  warmup: true                                                                           # 是否启用warmup，warm_up作为其参数设置配合使用
   warm_up: { multiplier: 1, total_epoch: 10 }
-  freq_out: 20
-  train:
+  freq_out: 20                                                                           # 多少个batch输出一次log（命令行中）
+  train:                                                                                 # 训练参数
     {
-      num_epochs: 180,
-      drop_rate: 0.5,
-      patience: 200,
-      iterations: 100,
-      verbose: true,
+      num_epochs: 180,                                                                   # 训练上限
+      drop_rate: 0.5,                                                                    # ...
+      patience: 200,                                                                     # ES（Early-Stop）范围，是否开启考虑使用的学习率衰减策略
+      iterations: 100,                                                                   # 丢弃，暂未启用
+      verbose: true,                                                                     # ...
     }
-  dataopt:
+  dataopt:                                                                               # dataloader的参数设置
     {
       batch_size: 256,
       shuffle: true,
@@ -278,45 +312,37 @@ training_opt:
       drop_last: true,
       prefetch_factor: 5,
     }
-  combiner_opt: {strategy: 'linear'}
-  max_mix_epoch: 180
-  criterion: { alpha: 0, beta: 0 }
+  combiner_opt: {strategy: 'linear'}                                                     # 损失结合器，用于选择组合损失的策略
+  max_mix_epoch: 180                                                                     # 在多少个epoch中启用mixup策略
+  criterion: { alpha: 0, beta: 0 }                                                       # TODO: check this one
 ```
 
 #### Online在线学习过程控制
 
+该模块主要控制代码的增量学习进程（其中可包含新类发现和深度聚类过程），与Training过程类似的就不再赘述。
+
 ```yaml
 online:
-  enable: true
-  resume: false
+  enable: true                                                               # 是否启用该进程
+  resume: false                                                              # 是否继续未完成的训练，ckpt存储模型地址
   ckpt: save_model/distill/mlp_cifar_rs50_cifar100/2022-01-17_12-07-37_PM.pt
-  cluster_t: kmeans
-  cluster_dict: { n_clusters: 20, init: k-means++, random_state: 0 }
-  downsample_t: pca
-  downsample_dict: { n_components: 20, random_state: 0 }
-  projecter: false
+  cluster_t: kmeans                                                          # 用于深度聚类策略中，选择聚类方法
+  cluster_dict: { n_clusters: 20, init: k-means++, random_state: 0 }         # 聚类的选项，聚簇数目和初始化方法
+  downsample_t: pca                                                          # 选择降维的方法
+  downsample_dict: { n_components: 20, random_state: 0 }                     # 降维的选项，最终维度选择
+  projecter: false                                                           # TODO:: 检查一下，是否从自监督学习中继承projector
   optimizer: SGD
   optim_opt: { lr: 0.1 }
   clf_optim_opt: { lr: 0.1, momentum: 0.9, weight_decay: 0.0005 }
   notzeroloss: 0.03
-  dis_criterion: kd_c
-  dis_loss_opt: {num_classes: 100, factor: 0.9, temperature: 2.0}
-  # factor = 0.9
-  # schedule: auto
+  dis_criterion: kd_c                                                        # 选择使用的蒸馏损失类型
+  dis_loss_opt: {num_classes: 100, factor: 0.9, temperature: 2.0}            # 蒸馏损失参数，其中最重要的是factor，选择蒸馏权重。
   schedule: multistep
   sche_opt: {
     milestones: !!python/tuple [60,120,180],
     gamma: 0.1,
     verbose: true
     }
-  # sche_opt:
-  #   {
-  #     mode: max,
-  #     factor: 0.5,
-  #     patience: 10,
-  #     min_lr: !!float 1e-5,
-  #     verbose: true,
-  #   }
   warmup: true
   warmup_opt: { multiplier: 1, total_epoch: 10 }
   combiner_opt: {strategy: 'new_linear'}
@@ -324,7 +350,11 @@ online:
   mix_epoches: 200
 ```
 
-## Customization
+## Customization 
+
+### Metric Design 
+
+模型的评价指标如ACC，PR等统计指标的设计和编写，
 
 ### Loss  Design
 
