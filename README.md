@@ -4,12 +4,6 @@
 
 面向类别长尾分布和增量学习的图像分类框架，该架构中包含自监督预训练、模型训练、增量学习三大模块，可以根据该框架设计通常的图像分类框架。
 
-**TBD**:
-
-- [ ] 补完Config的说明和各种参数的讲解，主要包含一些可选的模式和说明等
-- [ ] 编写Custom的指南
-- [ ] 修改basic_config等文件，删除Dropout的参数
-
 ## Quickstart
 
 首先说明如何使用默认的设置运行**长尾情景**下的图像分类模型（对比-校正模型）
@@ -58,7 +52,32 @@ training_opt:
 
 基于需求定义好配置文件后，修改对应的 `--cfg xxx` 或者在 `run_xxx.sh` 中修改配置文件的位置即可。
 
-## Locate Related Files
+### Dependencies依赖项
+
+```yaml
+│   1 albumentations==1.1.0↴
+│   2 cuml==0.19.0↴
+│   3 cupy==10.5.0↴
+│   4 cupy_cuda102==10.0.0↴
+│   5 einops==0.3.2↴
+│   6 matplotlib==3.4.3↴
+│   7 numpy==1.21.4↴
+│   8 opencv_python_headless==4.5.4.58↴
+│   9 Pillow==9.1.1↴
+│  10 PyYAML==6.0↴
+│  11 scikit_learn==1.1.1↴
+│  12 scipy==1.7.1↴
+│  13 thop==0.0.31.post2005241907↴
+│  14 torch==1.9.0↴
+│  15 torchstat==0.0.7↴
+│  16 torchsummary==1.5.1↴
+│  17 torchvision==0.10.0↴
+│  18 tqdm==4.62.3↴
+```
+
+
+
+## Locate Related Files文件定位
 
 按照文件对应的功能确定其文件夹位置，该部分仅展示主要的文件目录，各文件详细实现的功能请查阅[Files Manual](#FManual)
 
@@ -74,11 +93,11 @@ training_opt:
 
 需要注意的是，为了在Config中配置模型组成和损失组成，在Loss和Model中的`init.py`，编写了相应代码进行注册，因此实现新的模块后需要仿照其样式进行register。
 
-##  Usage of Modules
+##  Usage of Modules部分模块简介
 
 该部分介绍如何使用一些模块，以及部分模块的运行逻辑。
 
-### Log_Wrapper
+### Log_Wrapper日志装饰器
 
 使用python中的**Decorator**机制，通过装饰器修饰函数，便于记录算运行过程，并将相应的数据上传至Tensorboard，避免该类代码重复使用时需要重复编写，该部分代码主要实现于`util-wraps.py`。
 
@@ -117,7 +136,66 @@ update.set_phase(phase + 'test_epoch')
 ...
 ```
 
-## Configuration
+### Recorder 日志记录器
+
+在`metric.py`中定义的`Recorder`类，用于记录训练过程中的所有参数，其中的函数的用途如下所示：
+
+- **update**：使用`@record_nbatch`装饰，每个batch调用一次，更新（直接累加）一次recorder中的各项key-value，保持epoch和每个epoch的itera不变
+
+- **final**：同样使用`@record_nbatch`装饰，但其中`verbose=True`，在每个epoch结束后调用一次，计算各指标的epoch均值。
+- **reset**：重置
+- **addExcept**：将某些key设定为不计算不显示
+
+使用方式参考`ImbRunner`中的情况，在Batch级别调用`update`，在epoch级别调用`final`，而其他的关于装饰器的设置，关系到最终的显示和记录结果，按照自己的需求进行调整即可。
+
+### Training训练流程和设计
+
+代码的运行逻辑（函数跳转）如下图所示，其中橙色的字体代表对应实现的文件名，绿色的代表函数名，蓝色的代表判断模块或者输出。
+
+![image-20220605162045852](https://picture-bed-001-1310572365.cos.ap-guangzhou.myqcloud.com/imgs/image-20220605162045852.png)
+
+参考上述的流程图，可以知道，训练模式主要有普通训练、预训练、增量学习训练三种，具体如下面列表所示：
+
+1. 普通训练：df（交叉熵基础训练）、imb（引入对比学习子任务的训练模式）
+2. 预训练：pre_process
+3. 增量学习训练：online_process
+
+此外，在实现过程中，各个runner的继承关系如下图所示，（作为后文中使用self函数的参照）。
+
+![image-20220605163110701](https://picture-bed-001-1310572365.cos.ap-guangzhou.myqcloud.com/imgs/image-20220605163110701.png)
+
+如果要实现不同的训练模式，可以参考本文的实现方法，参考`base_runner`、`ImbRunner`等
+
+```python
+class NewRunner(base_runner):
+    def __init__(self, configs):
+        super(base_runner,self).__init__(configs)
+        # 初始化部分改runner需要的参数
+        pass
+    
+    def new_train(self, *args, **kwargs):
+        """
+        init dataset, model, optimizer, scheduler,...
+        then call self.train_epoch to start the training process
+        """
+        # self.train_epoch()指定了epoch层面的训练逻辑，具体可去base_runner中查看
+        # 该函数可以接受new_trainier（函数），也就是batch层次的具体训练方法，这也是我们需要着重定义的地方
+        pass
+    
+    def new_batch_trainer(self, *args. **kwargs):
+        """
+        the training process design. 
+        we call this function mostly in the train_epoch->new_trainer
+        init recorder, setup the epoch, and all forward process
+        """
+        # 实现具体的训练流程，所有的前向和反向流程，计算损失，计算过程中的各种指标等等
+        pass
+
+```
+
+
+
+## Configuration配置解读
 
 配置读取过程包含在argparser中，流程如下：读取命令行参数保存至Args ➡ 读取YAML文件至Configs ➡ 利用Args更新并合并到Configs.
 
@@ -125,7 +203,7 @@ update.set_phase(phase + 'test_epoch')
 
 在完成配置信息的合并后（参考update、getValue），在后续通过传递Configs（Dict）来控制代码的整体运行。
 
-### ArgumentParser
+### ArgumentParser参数解析
 
 Args用于指定函数运行的Config文件位置，并可指定部分常改的参数，若与YAML中的定义重复，则使用Args中的对其进行覆写。
 
@@ -143,7 +221,7 @@ Args中主要的参数如下：
 
 如果没有指定cfg的话，直接返回args的参数，但是目前仅凭args的参数无法支持后续训练（建议直接改成报错）
 
-### LoadYAML
+### LoadYAML配置文件
 
 由于配置文件较长，因此分别对该配置文件进行讲解，其中，必须包含的模块有： 、而非必须包含的模块有： 、
 
@@ -162,7 +240,7 @@ save_pth: save_model                           # 模型保存目录
 ckpt_pth: save_model/ckpt/.../both_scl_7213.pt # 读取的模型地址
 metrics_type: !!python/tuple ["acc1", "acc5"]  # 评价指标，可以选择计算的类型，在util-metric.py-Metric_cal中实现
 
-training_mode: imb                             # 训练模式【imb，null，】
+training_mode: imb                             # 训练模式【imb：引入对比学习子任务进行训练，df：使用基本的ce训练】
 logger:
   logname: train_cifar100_resnet50             # .log的文件名
   console_level: 2                             # 设置命令行输出【info，warning，...】
@@ -170,8 +248,6 @@ logger:
   log_dir: ./log                               # .log和tensorboard文件的存储路径
   subfix: final_der_                           # 当前训练的外层目录名
 ```
-
-
 
 #### Model模型配置
 
@@ -350,38 +426,86 @@ online:
   mix_epoches: 200
 ```
 
-## Customization 
+## Customization其他模块定制
 
-### Metric Design 
+### Metric设计
 
-模型的评价指标如ACC，PR等统计指标的设计和编写，
+- 核心代码为：`util->metric.py->Metric_cal`其中根据``type`定义相应的评价方法。
+- 其中更包含了`conf_metric`、`calculate_each_confi`等计算置信度的函数
 
-### Loss  Design
+> 其中除了acc1和acc5，其余的计算（**f1、prec、recall**）可由skl计算（当前已注释，可以取消注释），但还未验证，可通过验证后使用。
 
-对于损失函数的处理方式：将所有自定义的损失函数 存放在 ./loss中，将torch等已经被集成的常见loss function，放在其中的__init__.py中，在 __inti__中编写L_select，进行import管理，通过loss_t动态的返回相应的loss function，具体的操作如下：
+### Loss  Design损失设计
+
+对于损失函数的处理方式：将所有自定义的损失函数 存放在 ./loss中，将torch等已经被集成的常见loss function，放在其中的__init__.py中，在 __inti__中编写`L_select`，进行import管理，通过loss_t动态的返回相应的loss function，具体的操作如下：
 
 ```python
+# 在__init__.py中补充对新编写的损失进行注册
+elif LOSSTYPE.lower() == ‘new’:
+    from loss.new_loss import NewLoss
+    loss = NewLoss(**kwargs)
+    return loss
+
+# 在调用的环境中编写如下代码进行损失的调用
 from loss import L_select as loss_setter
 loss = loss_setter(loss_type)
 ```
 
-所以我们就i需要对每个写好的loss function在 `__init__`中进行统一的管理
+所以我们就需要对每个写好的loss function在 `__init__`中进行统一的管理，后续就可以在YAML中直接指定
 
-### Model （Layer）Design
+### Model  Design模型设计
 
-对于backbone的处理方式和Loss是大体一致的）
+该部分的基础设计和损失函数的设计思路一致，需要在`__init__.py`中进行如下注册：
 
-### recorder & Evaluator
+```python
+def M_select(modelName, num_cls=None, pretrain=False, in_dim=None, hidden_layers=None, dropout=0,
+            activation=None, ln=False, *args,**kwargs):
+    """using this method to get the right Module including classifier and backbone""" 
+    if 'resnet' in modelName:
+        from model.ResNet import chooseResNet
+        resnet = chooseResNet(num_cls,type = modelName)
+        model = resnet.GetModel()
+    ...
+```
 
-#### recorder
+为我们创建的模型（包括Clf和Backbone）进行注册，后续便于在YAML中使用，而在此，本文将模型的Clf和Backbone分离开来，故而本文实现了`Assemble`对模型进行组合，代码同样在该文件中。
 
-* 按照当前传入的dict 来更新所有评估指标
-* 分为两部分输出，一是累加值一是当前值
+```python
+class Assembler(nn.Module):
+    """using this class to assembly model"""
+    def __init__(self, feat_model, cls_model, num_cls, pretrain=False, in_dim=None, hidden_layers=None,
+                feature_vis=False, dropout=0, activation=None, ln=False):
+        super(Assembler, self).__init__()
+        # init the backbone and the classifier
+        self.backbone = M_select(feat_model, num_cls, pretrain)
+        self.classifier = None
 
-#### Evaluator
+        # get the classifier by the out_dim of backbone
+        # ATTENTION: we need give the in_dim or difine it in the model
+        if cls_model != 'Defaults':
+            if in_dim is None:
+                try:
+                    in_dim = self.backbone.out_dim
+                except:
+                    raise ValueError('backbone has no out_dim, please check or add in model and yaml')
 
+            self.classifier = M_select(cls_model, num_cls, in_dim = in_dim, hidden_layers=hidden_layers, 
+                                        dropout=dropout, activation=activation, ln=ln)
 
-* 编写call function 对采用的metric计算进行管理 方便return和调用
+        # setting the input style 
+        self.feature_vis = feature_vis
+```
+
+除了`forward`本文还为组成的模型设置了`expand_dim`默认的形式（主要用于增量学习）
+
+```python
+	# 需要classifier支持该函数，我们最好按照这个函数形式去写一下
+	def _expand_dim(self, num_cls, re_init=True, hidden_layers=None, *args, **kwargs):
+        """using a new classifier"""
+        self.classifier._expand_dim(num_cls, re_init, hidden_layers, *args, **kwargs)
+        return None
+    
+```
 
 ## FManual
 
